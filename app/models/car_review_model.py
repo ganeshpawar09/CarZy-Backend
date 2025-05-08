@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
 from models.base import Base
 
@@ -9,3 +10,6 @@ class CarReview(Base):
     booking_id = Column(Integer, ForeignKey('booking.id'), nullable=False)
     rating = Column(Integer, nullable= False)
     review_text = Column(Text, nullable= False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

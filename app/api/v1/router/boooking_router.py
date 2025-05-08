@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
+from models.payout_model import Payout
 from models.booking_model import Booking
 from models.payment_model import Payment
 from models.coupon_model import Coupon
@@ -30,6 +31,28 @@ RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 razorpay_client = razorpay.Client(
     auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
 )
+
+@router.get("/my-bookings/{user_id}", response_model=list[MyBookingOut])
+def get_bookings_by_user(user_id: int, db: Session = Depends(get_db)):
+    bookings = db.query(Booking).filter(Booking.user_id == user_id).all()
+    return bookings
+
+@router.get("/my-car-bookings/{user_id}", response_model=list[MyCarBookingOut])
+def get_my_car_bookings(user_id: int, db: Session = Depends(get_db)):
+    bookings = db.query(Booking).filter(Booking.car_owner_id == user_id).all()
+    return bookings
+
+@router.get("/coupon/{coupon_id}", response_model=float)
+def get_coupon_discount(coupon_id: int, db: Session = Depends(get_db)):
+    coupon = db.query(Coupon).filter(
+        Coupon.id == coupon_id,
+        Coupon.used == False  
+    ).first()
+
+    if not coupon:
+        return -1.0 
+    
+    return coupon.discount
 
 @router.post("/create-razorpay-order")
 def create_razorpay_order(payload: RazorpayOrderRequest):
@@ -79,111 +102,81 @@ def verify_payment(payload: PaymentVerificationRequest):
 
 @router.post("/booking")
 def create_booking(payload: BookingRequest, db: Session = Depends(get_db)):
-        # Check if car exists
-        car = db.query(Car).filter(Car.id == payload.car_id).first()
-        if not car:
-            raise HTTPException(status_code=404, detail="Car not found")
+    car = db.query(Car).filter(Car.id == payload.car_id).first()
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
 
-        # Generate OTPs for pickup and drop
-        pickup_otp = generate_otp()
-        drop_otp = generate_otp()
+    pickup_otp = generate_otp()
+    drop_otp = generate_otp()
+
+    if payload.coupon_id:
+        coupon = db.query(Coupon).filter(Coupon.id == payload.coupon_id, Coupon.used == False).first()
+        if not coupon:
+            raise HTTPException(status_code=400, detail="Invalid or already used coupon")
+        coupon.used = True
+
+
+ 
+    # Verify payment status
+    payment_status = "pending"
+    if payload.razorpay_payment_id:
+        try:
+            razorpay_payment = razorpay_client.payment.fetch(payload.razorpay_payment_id)
+            if razorpay_payment['status'] == 'captured':
+                payment_status = 'paid'
+            else:
+                payment_status = razorpay_payment['status']
+        except Exception as e:
+            print(f"Razorpay fetch error: {str(e)}")
+
+    payment = Payment(
+        booking_id=None, 
+        user_id=payload.user_id,
+        total_hours=payload.total_hours,
+        price_per_hour=payload.price_per_hour,
         
-        # Handle coupon if provided
-        if payload.coupon_id:
-            coupon = db.query(Coupon).filter(
-                Coupon.id == payload.coupon_id,
-                Coupon.used == False
-            ).first()
-            if not coupon:
-                raise HTTPException(status_code=400, detail="Invalid or already used coupon")
-            coupon.used = True
+        security_deposit=payload.security_deposit,
+        coupon_discount=payload.coupon_discount or 0.0,
+        status=payment_status,
+        razorpay_payment_id=payload.razorpay_payment_id,
+        created_at=datetime.utcnow()
+    )
+    db.add(payment)
+    db.flush()
 
-        # Verify Razorpay payment
-        payment_status = 'pending'
-        if payload.razorpay_payment_id:
-            try:
-                # Fetch payment details from Razorpay
-                razorpay_payment = razorpay_client.payment.fetch(payload.razorpay_payment_id)
-                
-                # Check payment status
-                if razorpay_payment['status'] == 'captured':
-                    payment_status = 'paid'
-                else:
-                    payment_status = razorpay_payment['status']
-            except Exception as e:
-                print(f"Error fetching Razorpay payment: {str(e)}")
-                # Continue with booking creation but mark payment as pending
+    booking = Booking(
+        user_id=payload.user_id,
+        car_id=payload.car_id,
+        car_owner_id=payload.car_owner_id,
+        start_datetime=payload.start_datetime,
+        end_datetime=payload.end_datetime,
+        pickup_delivery_location=payload.pickup_delivery_location,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        status='booked',
+        pickup_otp=pickup_otp,
+        drop_otp=drop_otp,
+        payment_id=payment.id,
+        total_hours=payload.total_hours,
+        price_per_hour=payload.price_per_hour,
+        security_deposit=payload.security_deposit,
+        coupon_discount=payload.coupon_discount or 0.0,
+        created_at=datetime.utcnow()
+    )
+    db.add(booking)
+    db.flush()
 
-        # Create payment record
-        payment = Payment(
-            booking_id=None,
-            user_id=payload.user_id,
-            total_hours=payload.total_hours,
-            price_per_hour=payload.price_per_hour,
-            total_amount=payload.total_amount,
-            security_deposit=payload.security_deposit,
-            coupon_discount=payload.coupon_discount,
-            status=payment_status,
-            created_at=datetime.utcnow()
-        )
-        db.add(payment)
-        db.flush()  # Get the payment ID
+    payment.booking_id = booking.id
 
-        # Create booking record
-        booking = Booking(
-            user_id=payload.user_id,
-            car_id=payload.car_id,
-            car_owner_id=payload.car_owner_id,
-            start_datetime=payload.start_datetime,
-            end_datetime=payload.end_datetime,
-            pickup_delivery_location=payload.pickup_delivery_location,
-            latitude=payload.latitude,
-            longitude=payload.longitude,
-            status='booked' if payment_status == 'paid' else 'payment_pending',
-            total_hours=payload.total_hours,
-            price_per_hour=payload.price_per_hour,
-            total_amount=payload.total_amount,
-            security_deposit=payload.security_deposit,
-            coupon_discount=payload.coupon_discount,
-            pickup_otp=pickup_otp,
-            drop_otp=drop_otp,
-            payment_id=payment.id,
-            created_at=datetime.utcnow()
-        )
-        db.add(booking)
-        db.flush()  # Get the booking ID
+    new_booking_range = f"{payload.start_datetime.isoformat()} to {payload.end_datetime.isoformat()}"
+    car.future_booking_datetime = (car.future_booking_datetime + " | " + new_booking_range) if car.future_booking_datetime else new_booking_range
 
-        # Update payment with booking ID
-        payment.booking_id = booking.id
+    db.commit()
 
-        # Update car's future booking dates
-        new_booking_time = f"{payload.start_datetime} - {payload.end_datetime}"
-        if car.future_booking_datetime:
-            car.future_booking_datetime += f" | {new_booking_time}"
-        else:
-            car.future_booking_datetime = new_booking_time
+    return {
+        "message": "Booking successful",
+    }
 
-        db.commit()
-        
-        return {
-            "message": "Booking successful", 
-            "booking_id": booking.id,
-            "payment_status": payment_status
-        }
-   
-@router.get("/my-bookings/{user_id}", response_model=list[MyBookingOut])
-def get_bookings_by_user(user_id: int, db: Session = Depends(get_db)):
-    bookings = db.query(Booking).filter(Booking.user_id == user_id).all()
-    if not bookings:
-        raise HTTPException(status_code=404, detail="No bookings found for this user")
-    return bookings
-
-@router.get("/my-car-bookings/{user_id}", response_model=list[MyCarBookingOut])
-def get_my_car_bookings(user_id: int, db: Session = Depends(get_db)):
-    bookings = db.query(Booking).filter(Booking.car_owner_id == user_id).all()
-    if not bookings:
-        raise HTTPException(status_code=404, detail="No bookings found for your cars")
-    return bookings
 
 
 @router.post("/pickup")
@@ -212,15 +205,10 @@ def confirm_pickup(data: PickupConfirmation, db: Session = Depends(get_db)):
         booking.before_left_side_image_url = data.before_left_side_image_url
     if data.before_right_side_image_url:
         booking.before_right_side_image_url = data.before_right_side_image_url
-    if data.before_interior_image_url:
-        booking.before_interior_image_url = data.before_interior_image_url
 
     db.commit()
 
     return {"message": "Pickup confirmed successfully"}
-
-
-
 
 @router.post("/drop")
 def confirm_drop(data: DropConfirmation, db: Session = Depends(get_db)):
@@ -239,166 +227,200 @@ def confirm_drop(data: DropConfirmation, db: Session = Depends(get_db)):
     booking.drop_otp_used = True
     booking.returned_time = now
 
-    # Optional after-drop photos
+    # Save after-drop images
     booking.after_front_image_url = data.after_front_image_url or booking.after_front_image_url
     booking.after_rear_image_url = data.after_rear_image_url or booking.after_rear_image_url
     booking.after_left_side_image_url = data.after_left_side_image_url or booking.after_left_side_image_url
     booking.after_right_side_image_url = data.after_right_side_image_url or booking.after_right_side_image_url
-    booking.after_interior_image_url = data.after_interior_image_url or booking.after_interior_image_url
 
-    # Remove from car's future booking slot
+    # Update car's future_booking_datetime
     car = db.query(Car).filter(Car.id == booking.car_id).first()
-    time_range = f"{booking.start_datetime} - {booking.end_datetime}"
+    time_range = f"{booking.start_datetime} to {booking.end_datetime}"
     if car and car.future_booking_datetime:
         slots = car.future_booking_datetime.split(" | ")
         car.future_booking_datetime = " | ".join([s for s in slots if s.strip() != time_range])
 
-    # Late fee logic
-    late_fee = 0
+    # Handle refund, late fee, penalty
+    payment = db.query(Payment).filter(Payment.id == booking.payment_id).first()
+    late_charge  = 0
     refund_amount = 0
+    deduction_reason = None
+    penalty_reason = None
 
-    if now > booking.end_datetime + timedelta(hours=1):
-        late_hours = (now - (booking.end_datetime + timedelta(hours=1))).total_seconds() / 3600
-        late_fee = int(booking.price_per_hour * late_hours)
-        booking.late_charged = late_fee
+    grace_period_end = booking.end_datetime + timedelta(hours=1)
+    if now > grace_period_end:
+        late_hours = (now - grace_period_end).total_seconds() / 3600
+        late_hours_rounded = round(late_hours + 0.5)  # Round to nearest hour
+        late_charge  = int(payment.price_per_hour * late_hours_rounded)
 
-        if late_fee <= booking.security_deposit:
-            refund_amount = booking.security_deposit - late_fee
+        if late_charge  <= payment.security_deposit:
+            refund_amount = payment.security_deposit - late_charge 
+            deduction_reason = f"Late return by {late_hours_rounded} hours"
         else:
+            penalty_amount = late_charge  - payment.security_deposit
             refund_amount = 0
-            penalty_amount = late_fee - booking.security_deposit
+            deduction_reason = f"Security fully deducted. Late by {late_hours_rounded} hours"
+            penalty_reason = f"Late return by {late_hours_rounded} hours"
+            
+            
             penalty = Penalty(
-                user_id=booking.user_id,
-                booking_id=booking.id,
-                amount=penalty_amount,
-                reason='late_return'
-            )
+            user_id=booking.car_owner_id,
+            booking_id=booking.id,
+            penalty_amount=penalty_amount,
+            penalty_reason=penalty_reason,
+            reason="late_drop",
+            payment_status="unpaid"
+    )
             db.add(penalty)
     else:
-        refund_amount = booking.security_deposit - booking.late_charged
-    
+        refund_amount = payment.security_deposit
+
+    booking.late_charge = late_charge
     # Create refund
     refund = Refund(
         user_id=booking.user_id,
         booking_id=booking.id,
-        reason='refundable',
-        deduction_amount=late_fee,
-        deduction_reason="Late drop-off" if late_fee > 0 else None,
+        reason="refundable",
+        deduction_amount=late_charge  if late_charge  > 0 else 0,
+        deduction_reason=deduction_reason,
         refund_amount=refund_amount
     )
-
     db.add(refund)
-    db.flush()
 
-    booking.refund_id = refund.id
     db.commit()
 
-    return {
-        "message": "Drop confirmed successfully",
-    }
+    base_rent = booking.total_hours * booking.price_per_hour
+    coupon_discount_amount = round(base_rent * (booking.coupon_discount or 0) / 100)
+    earning_before_payout = booking.late_charge + base_rent - coupon_discount_amount
+
+    # Compute final payout: 90% of the above
+    payout_amount = 0.9 * earning_before_payout
+
+    # Create Payout entry
+    payout = Payout(
+        owner_id=booking.car_owner_id,
+        booking_id=booking.id,
+        car_id=booking.car_id,
+        total_hours=booking.total_hours,
+        price_per_hour=booking.price_per_hour,
+        coupon_discount=booking.coupon_discount or 0,
+        late_charge=booking.late_charge or 0,
+        payout_amount=payout_amount,
+        status='pending',
+    )
+
+    db.add(payout)
+    db.commit()
+
+    return {"message": "Drop confirmed successfully"}
 
 
 @router.post("/cancel-by-owner")
 def cancel_by_owner(data: BookingCancellationByOwner, db: Session = Depends(get_db)):
-    booking = db.query(Booking).filter(Booking.id == data.booking_id, Booking.car_owner_id == data.owner_id).first()
+    booking = db.query(Booking).filter(
+        Booking.id == data.booking_id,
+        Booking.car_owner_id == data.owner_id
+    ).first()
+
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found or not owned by this owner")
-    if booking.status == "cancelled_by_owner":
-        raise HTTPException(status_code=400, detail="Booking already cancelled by owner")
-    # Calculate 10% penalty for the owner
-    penalty_amount = 0.1 * booking.total_amount  # 10% of the total booking amount
-    # Refund the full amount to the user
-    refund_amount = booking.total_amount
-    # Update the booking status to "cancelled_by_owner"
+
+    payment = db.query(Payment).filter(Payment.id == booking.payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=500, detail="Payment record not found")
+
+    # Calculate values
+    penalty_amount = 0.1 *(round(payment.total_hours * payment.price_per_hour) -(round(payment.total_hours * payment.price_per_hour)*payment.coupon_discount/100) )# 10% of booking amount
+    refund_amount = round(payment.total_hours * payment.price_per_hour)-(round(payment.total_hours * payment.price_per_hour)*payment.coupon_discount/100) + payment.security_deposit  # Full refund
+
+    # Update booking
     booking.status = "cancelled_by_owner"
-    db.commit()
-    # Remove the booking time from the car's future bookings
+
+    # Remove slot from car’s future bookings
     car = db.query(Car).filter(Car.id == booking.car_id).first()
-    time_range = f"{booking.start_datetime} - {booking.end_datetime}"
+    time_range = f"{booking.start_datetime} to {booking.end_datetime}"
     if car and car.future_booking_datetime:
         slots = car.future_booking_datetime.split(" | ")
         car.future_booking_datetime = " | ".join([s for s in slots if s.strip() != time_range])
-    db.commit()
-    # Create a refund record for the user
+
+    # Create refund with detailed reason
     refund = Refund(
         user_id=booking.user_id,
         booking_id=booking.id,
-        reason='cancelled_by_owner',
-        deduction_amount=0,  # No deductions, the user gets the full refund
+        reason="cancelled_by_owner",
+        deduction_amount=0,
+        deduction_reason="No deductions — full refund due to owner's cancellation",
         refund_amount=refund_amount
     )
     db.add(refund)
-    db.flush()
-    # Link the refund to the booking
-    booking.refund_id = refund.id
-    db.commit()
-    # Add penalty record for the owner
+
+    # Create penalty with detailed reason
     penalty = Penalty(
         user_id=booking.car_owner_id,
         booking_id=booking.id,
-        amount=penalty_amount,
-        reason='cancelled_by_owner'
+        penalty_amount=penalty_amount,
+        penalty_reason="Penalty charged because owner cancelled the booking before trip start",
+        reason="cancelled_by_owner",
+        payment_status="unpaid"
     )
     db.add(penalty)
 
+    # Optional: Give user a coupon
     coupon = Coupon(
         user_id=booking.user_id,
-        discount_percentage=10.0,
-        issued_for_reason="owner cancelled trip"
+        discount=10.0,
     )
     db.add(coupon)
 
     db.commit()
 
-    db.commit()
-    return {
-        "message": "Booking cancelled successfully by owner"    }
+    return {"message": "Booking cancelled successfully by owner"}
 
+
+from datetime import datetime
 
 @router.post("/cancel")
 def cancel_booking(data: BookingCancellation, db: Session = Depends(get_db)):
-    # Retrieve the booking
     booking = db.query(Booking).filter(Booking.id == data.booking_id).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    # Check if the user trying to cancel is the one who made the booking
     if booking.user_id != data.user_id:
         raise HTTPException(status_code=403, detail="You can only cancel your own booking")
 
-    # Mark the booking as cancelled
-    booking.status = 'cancelled'
-    
-    # Calculate the main amount (total amount - security deposit)
-    main_amount = booking.total_amount - booking.security_deposit
-    
-    # Apply coupon discount to the main amount
-    if booking.coupon_discount:
-        main_amount -= (main_amount * booking.coupon_discount)
+    if booking.status in ["cancelled", "cancelled_by_owner", "completed"]:
+        raise HTTPException(status_code=400, detail=f"Booking already {booking.status.replace('_', ' ')}")
 
-    # Calculate the refundable amount based on the percentage input
-    refundable_amount = main_amount * (data.refund_percentage / 100)
+    now = datetime.utcnow()
+    if now >= booking.start_datetime:
+        raise HTTPException(status_code=400, detail="Cannot cancel after booking start time")
 
-    # Deduct the remaining amount
-    deduction_amount = main_amount - refundable_amount
+    payment = db.query(Payment).filter(Payment.id == booking.payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=500, detail="Payment not found")
+
+   
+    refund_percentage = max(0,data.refund_percentage) 
+
+    refundable_amount = round((round(payment.total_hours * payment.price_per_hour) -(round(payment.total_hours * payment.price_per_hour)*payment.coupon_discount/100) ) * (refund_percentage / 100), 2)
+    deduction_amount = round((round(payment.total_hours * payment.price_per_hour) -(round(payment.total_hours * payment.price_per_hour)*payment.coupon_discount/100) ) - refundable_amount, 2)
+    total_refund = refundable_amount + payment.security_deposit
+
+    # Update booking status
+    booking.status = 'cancelled_by_user'
 
     # Create refund record
     refund = Refund(
         user_id=booking.user_id,
         booking_id=booking.id,
-        reason='cancellation',
+        reason="cancelled_by_user",
+        refund_amount=total_refund,
         deduction_amount=deduction_amount,
-        refund_amount=refundable_amount,
-        deduction_reason="Booking cancelled"
+        deduction_reason=f"{round(refund_percentage)}% refund based on remaining time before start"
     )
     db.add(refund)
-    db.flush()
 
-    # Assign the refund ID to the booking
-    booking.refund_id = refund.id
-    db.commit()
-
-    # Remove the booking time from the car's future booking list
+    # Remove time range from future_booking_datetime
     car = db.query(Car).filter(Car.id == booking.car_id).first()
     if car and car.future_booking_datetime:
         time_range = f"{booking.start_datetime} - {booking.end_datetime}"
@@ -407,4 +429,4 @@ def cancel_booking(data: BookingCancellation, db: Session = Depends(get_db)):
 
     db.commit()
 
-    return {"message": "Booking cancelled successfully. Refund processed."}
+    return {"message": "Booking cancelled"}

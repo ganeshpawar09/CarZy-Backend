@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, date
-
 class VerificationCheckRequest(BaseModel):
     user_id: int
 
@@ -37,13 +36,25 @@ class UserVerificationRequest(BaseModel):
     license_photo_url: str
     passport_photo_url: str
 
+class SystemReviewCreate(BaseModel):
+    user_id: int
+    rating: int
+    description: str
+
 class UserVerificationStatusUpdate(BaseModel):
     user_id: int
-    verified_by: int
+    verifier_id: int
     verification_id: int
     status: str  
     rejection_reason: Optional[str] = None
     
+class SystemReviewOut(BaseModel):
+    user_id: int
+    user_name: str
+    user_type: str
+    rating: int 
+    description: str
+
 
 class RefundOut(BaseModel):
     id: int
@@ -51,9 +62,14 @@ class RefundOut(BaseModel):
     booking_id: int
     reason: str
     deduction_amount: float
-    deduction_reason: Optional[str]
-    refund_amount: Optional[float]
+    deduction_reason: Optional[str] = None
+    refund_amount: Optional[float] = None
+    claimed_at: Optional[datetime] = None
+    upi_id: Optional[str] = None
+    status: str
+    razorpay_payment_id: Optional[str] = None
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         orm_mode = True
@@ -62,9 +78,13 @@ class PenaltyOut(BaseModel):
     id: int
     user_id: int
     booking_id: int
-    amount: float
+    penalty_amount: float
+    penalty_reason: Optional[str] = None
     reason: str
+    payment_status: str
+    razorpay_payment_id: Optional[str] = None
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         orm_mode = True
@@ -75,7 +95,6 @@ class PaymentOut(BaseModel):
     user_id: int
     total_hours: float
     price_per_hour: float
-    total_amount: float
     security_deposit: float
     coupon_discount: Optional[float]
     status: str
@@ -87,9 +106,8 @@ class PaymentOut(BaseModel):
 class CouponOut(BaseModel):
     id: int
     user_id: int
-    discount_percentage: float
+    discount: float
     used: bool
-    issued_for_reason: Optional[str]
     created_at: datetime
     
     class Config:
@@ -107,19 +125,22 @@ class UserVerificationOut(BaseModel):
 class CarVerificationOut(BaseModel):
     id: int
     car_id: Optional[int]
-    car_number: str
-
-    puc_image_url: str
-    puc_expiry_date: date
-
-    rc_image_url: str
-    rc_expiry_date: date
-
-    insurance_image_url: str
-    insurance_expiry_date: date
 
     created_at: datetime
     updated_at: datetime
 
     class Config:
         orm_mode = True
+
+
+class RefundClaimIn(BaseModel):
+    refund_id: int
+    upi_id: str 
+
+class PenaltyPaymentUpdate(BaseModel):
+    penalty_id: int
+    razorpay_payment_id: str
+
+class PayoutClaim(BaseModel):
+    payout_id: int
+    upi_id: str

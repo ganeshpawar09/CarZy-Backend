@@ -9,5 +9,6 @@ class Otp(Base):
     mobile_number = Column(String(15), nullable=False)
     otp = Column(String(6), nullable=False)
     expires_at = Column(DateTime, default=lambda: datetime.utcnow() + timedelta(minutes=10))
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     verified_at = Column(DateTime, nullable=True)  # New

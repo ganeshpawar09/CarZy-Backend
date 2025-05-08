@@ -11,5 +11,6 @@ class SystemReview(Base):
     user_type = Column(Enum('user', 'owner'), nullable=False)
     rating = Column(Integer, nullable=False)
     description = Column(Text, nullable=False)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 

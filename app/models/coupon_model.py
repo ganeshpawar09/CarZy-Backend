@@ -7,8 +7,10 @@ class Coupon(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
-    discount_percentage = Column(Float, nullable=False)
+    
+    discount = Column(Float, nullable=False)
     used= Column(Boolean, default=False, nullable=False)  
-    issued_for_reason = Column(Text, nullable=True)  # e.g., "owner cancelled trip"
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+

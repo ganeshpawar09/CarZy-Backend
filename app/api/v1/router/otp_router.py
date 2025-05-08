@@ -7,13 +7,15 @@ from schemas.otp_schema import OTPVerifyRequest, OTPRequest
 from datetime import datetime, timedelta
 import random
 from schemas.user_schema import UserOut
+from twilio.rest import Client
+from utils.sms import send_sms 
 
 router = APIRouter(prefix="/otp", tags=["Otp"])
+
 
 @router.post("/send-otp")
 def send_otp(payload: OTPRequest, db: Session = Depends(get_db)):
     otp = str(random.randint(1000, 9999))
-
     otp_entry = Otp(
         mobile_number=payload.mobile_number,
         otp=otp,
@@ -22,10 +24,11 @@ def send_otp(payload: OTPRequest, db: Session = Depends(get_db)):
     )
     db.add(otp_entry)
     db.commit()
-    db.refresh(otp_entry) 
-
+    db.refresh(otp_entry)
+    
+    # if(payload.mobile_number!="1111111111" and payload.mobile_number!="2222222222"):
+    #     send_sms("+91"+payload.mobile_number, f"Your CarZy OTP is {otp}")
     print(f"OTP for {payload.mobile_number}: {otp}")
-
     return {
         "message": "OTP sent successfully",
         "otp_id": otp_entry.id

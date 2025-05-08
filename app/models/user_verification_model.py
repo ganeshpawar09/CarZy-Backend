@@ -11,8 +11,8 @@ class UserVerification(Base):
     license_photo_url = Column(Text, nullable=False)
     passport_photo_url = Column(Text, nullable=False)
 
-    status = Column(Enum('pending', 'approved', 'rejected', 'cancelled'), default='pending')
-    verified_by = Column(Integer, ForeignKey('user.id'), nullable=True) 
+    status = Column(Enum('pending', 'approved', 'rejected'), default='pending')
+    verifier_id = Column(Integer, ForeignKey('user.id'), nullable=True) 
     rejection_reason = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)

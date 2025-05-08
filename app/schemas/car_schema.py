@@ -4,10 +4,8 @@ from typing import Optional, Literal
 from datetime import date, datetime
 
 class CarVerificationRequest(BaseModel):
-    car_id: Optional[int]=None
-    
-    owner_id: int  
-    
+    car_id: Optional[int] = None
+    owner_id: int
     company_name: str
     model_name: str
     car_number: str
@@ -17,35 +15,24 @@ class CarVerificationRequest(BaseModel):
     price_per_hour: float
     location: str
     fuel_type: Literal['petrol', 'cng', 'diesel', 'electric']
-    features: str  
-    car_type: str
-    transmission_type: str
+    features: str
+    car_type: str  # Keep this only once
+    transmission_type: str  # Keep this only once
     front_view_image_url: str
     rear_view_image_url: str
     left_side_image_url: str
     right_side_image_url: str
-    diagonal_front_left_image_url: str
-    diagonal_rear_right_image_url: str
-    dashboard_image_url: str
-    speedometer_fuel_gauge_image_url: str
-    front_seats_image_url: str
-    rear_seats_image_url: str
-    boot_space_image_url: str
-    tyre_condition_image_url: str
-    last_serviced_on: date  
+    last_serviced_on: date
     puc_image_url: str
     puc_expiry_date: date
     rc_image_url: str
     rc_expiry_date: date
     insurance_image_url: str
     insurance_expiry_date: date
-    car_type: str
-    transmission_type: str
-    future_booking_datetime: Optional[str]=None
-    latitude: float  
-    longitude: float 
-
-    is_visible: bool 
+    future_booking_datetime: Optional[str] = None
+    latitude: float
+    longitude: float
+    is_visible: bool
 
     class Config:
         orm_mode = True
@@ -75,14 +62,6 @@ class CarOut(BaseModel):
     rear_view_image_url: str
     left_side_image_url: str
     right_side_image_url: str
-    diagonal_front_left_image_url: str
-    diagonal_rear_right_image_url: str
-    dashboard_image_url: str
-    speedometer_fuel_gauge_image_url: str
-    front_seats_image_url: str
-    rear_seats_image_url: str
-    boot_space_image_url: str
-    tyre_condition_image_url: str
     last_serviced_on: Optional[date]
     features: str
 
@@ -107,7 +86,7 @@ class CarOut(BaseModel):
 class CarVerificationRequestStatusUpdate(BaseModel):
     verification_id: int
     status: str  
-    verified_by: int 
+    verifier_id: int 
     rejection_reason: Optional[str] = None
 
 
@@ -155,14 +134,6 @@ class CarSearchResponse(BaseModel):
     rear_view_image_url: str
     left_side_image_url: str
     right_side_image_url: str
-    diagonal_front_left_image_url: str
-    diagonal_rear_right_image_url: str
-    dashboard_image_url: str
-    speedometer_fuel_gauge_image_url: str
-    front_seats_image_url: str
-    rear_seats_image_url: str
-    boot_space_image_url: str
-    tyre_condition_image_url: str
     last_serviced_on: Optional[date]
     features: str
 

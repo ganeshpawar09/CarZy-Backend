@@ -15,6 +15,7 @@ router = APIRouter(prefix="/employee", tags=["Employee"])
 @router.get("/all-user-verifications", response_model=List[UserVerificationOut])
 def get_all_user_verifications(db: Session = Depends(get_db)):
     user_verifications = db.query(UserVerification).filter(UserVerification.status == 'pending').all()
+    print(user_verifications)
     return user_verifications
 
 @router.get("/all-car-verifications", response_model=List[CarVerificationOut])
@@ -40,7 +41,7 @@ def update_verification_status(
         raise HTTPException(status_code=400, detail="Invalid status")
 
     verification.status = payload.status
-    verification.verified_by = payload.verified_by
+    verification.verifier_id = payload.verifier_id
     verification.updated_at = datetime.utcnow()
 
     user.verification_status = payload.status
@@ -79,7 +80,7 @@ def respond_to_car_request(payload: CarVerificationRequestStatusUpdate, db: Sess
     # Update verification record
     car_verification.status = payload.status
     car_verification.rejection_reason = payload.rejection_reason
-    car_verification.verified_by = payload.verified_by
+    car_verification.verifier_id = payload.verifier_id
     car_verification.updated_at = datetime.utcnow()
 
     # Update car verification status

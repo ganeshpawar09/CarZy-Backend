@@ -13,7 +13,6 @@ class BookingRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
-    total_amount: float
     price_per_hour: float
     total_hours: float
     security_deposit: float
@@ -38,14 +37,11 @@ class MyBookingOut(BaseModel):
     picked_time: Optional[datetime] = None
     returned_time: Optional[datetime] = None
 
-    total_amount: float
     price_per_hour: float
     total_hours: float
     security_deposit: float
     coupon_discount: Optional[float] = None
-
-    late_fees_charged: Optional[bool] = None
-    late_fees_amount: Optional[float] = None
+    created_at: datetime
 
 
 class MyCarBookingOut(BaseModel):
@@ -60,20 +56,19 @@ class MyCarBookingOut(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     status: str
+ 
+    picked_time: Optional[datetime] = None
+    returned_time: Optional[datetime] = None
+    
+    pickup_otp: str
+    drop_otp: str
 
-    total_amount: float
     price_per_hour: float
     total_hours: float
     security_deposit: float
     coupon_discount: Optional[float] = None
+    created_at: datetime
 
-    
-    picked_time: Optional[datetime] = None
-    returned_time: Optional[datetime] = None
-    late_fees_charged: Optional[bool] = None
-    late_fees_amount: Optional[float] = None
-    pickup_otp: str
-    drop_otp: str
 
 
 
@@ -84,7 +79,6 @@ class PickupConfirmation(BaseModel):
     before_rear_image_url: Optional[str] = None
     before_left_side_image_url: Optional[str] = None
     before_right_side_image_url: Optional[str] = None
-    before_interior_image_url: Optional[str] = None
 
 class DropConfirmation(BaseModel):
     booking_id: int
@@ -93,7 +87,6 @@ class DropConfirmation(BaseModel):
     after_rear_image_url: Optional[str] = None
     after_left_side_image_url: Optional[str] = None
     after_right_side_image_url: Optional[str] = None
-    after_interior_image_url: Optional[str] = None
 
 
 class BookingCancellationByOwner(BaseModel):

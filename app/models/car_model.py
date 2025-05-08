@@ -25,18 +25,12 @@ class Car(Base):
     car_type = Column(Enum('sedan', 'suv', 'hatchback'), nullable=False)  
     transmission_type = Column(Enum('manual', 'automatic'), nullable=False)  
     future_booking_datetime = Column(Text, nullable=False) 
-    front_view_image_url = Column(Text, nullable=False)
-    rear_view_image_url = Column(Text, nullable=False)
-    left_side_image_url = Column(Text, nullable=False)
-    right_side_image_url = Column(Text, nullable=False)
-    diagonal_front_left_image_url = Column(Text, nullable=False)
-    diagonal_rear_right_image_url = Column(Text, nullable=False)
-    dashboard_image_url = Column(Text, nullable=False)
-    speedometer_fuel_gauge_image_url = Column(Text, nullable=False)
-    front_seats_image_url = Column(Text, nullable=False)
-    rear_seats_image_url = Column(Text, nullable=False)
-    boot_space_image_url = Column(Text, nullable=False)
-    tyre_condition_image_url = Column(Text, nullable=False)
+
+
+    front_view_image_url = Column(Text, nullable=True)
+    rear_view_image_url = Column(Text, nullable=True)
+    left_side_image_url = Column(Text, nullable=True)
+    right_side_image_url = Column(Text, nullable=True)
 
     features = Column(Text, nullable=False)
 
@@ -46,6 +40,8 @@ class Car(Base):
     rc_expiry_date = Column(Date, nullable=False)
     insurance_image_url = Column(Text, nullable=False)
     insurance_expiry_date = Column(Date, nullable=False)
+
+    cancellations = Column(Integer, default=0, nullable=False)
     
     last_verification_id = Column(Integer, ForeignKey('car_verification.id'), nullable=True)
     verification_status = Column(Enum('pending', 'in_process', 'approved', 'rejected'), default='pending', nullable=False)

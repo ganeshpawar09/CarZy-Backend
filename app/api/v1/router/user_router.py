@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from schemas.user_schema import UserOut, UserNameUpdate, VerificationCheckRequest, VerificationCheckResponse, UserVerificationRequest, UserVerificationStatusUpdate, RefundOut, PenaltyOut, PaymentOut, CouponOut, CarVerificationOut, UserVerificationOut
+from models.payout_model import Payout
+from schemas.user_schema import PayoutClaim, PenaltyPaymentUpdate, SystemReviewCreate, RefundClaimIn, SystemReviewOut, UserOut, UserNameUpdate, VerificationCheckRequest, VerificationCheckResponse, UserVerificationRequest, UserVerificationStatusUpdate, RefundOut, PenaltyOut, PaymentOut, CouponOut, CarVerificationOut, UserVerificationOut
 from models.user_model import User
 from models.refund_model import Refund
 from models.penalty_model import Penalty
@@ -25,63 +26,48 @@ def get_top_system_reviews(db: Session = Depends(get_db)):
     )
     return top_reviews
 
-@router.get("/{user_id}", response_model=UserOut)
-def get_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-    return user
-
-@router.get("/refunds/{user_id}", response_model=List[RefundOut])
-def get_user_refunds(user_id: int, db: Session = Depends(get_db)):
-    refunds = db.query(Refund).filter(Refund.user_id == user_id).all()
-    return refunds
-
-@router.get("/penalties/{user_id}", response_model=List[PenaltyOut])
+@router.get("/get-system_review/{user_id}", response_model=SystemReviewOut)
 def get_user_penalties(user_id: int, db: Session = Depends(get_db)):
-    penalties = db.query(Penalty).filter(Penalty.user_id == user_id).all()
-    return penalties
+    review = db.query(SystemReview).filter(SystemReview.user_id == user_id).first()
+    return review
 
-@router.get("/coupons/{user_id}", response_model=List[CouponOut])
-def get_user_coupons(user_id: int, db: Session = Depends(get_db)):
-    coupons = db.query(Coupon).filter(Coupon.user_id == user_id).all()
-    return coupons
-
-@router.get("/payments/{user_id}", response_model=List[PaymentOut])
-def get_user_payments(user_id: int, db: Session = Depends(get_db)):
-    payments = db.query(Payment).filter(Payment.user_id == user_id).all()
-    return payments
-
-@router.get("/coupon/{coupon_id}", response_model=float)
-def get_coupon_discount(coupon_id: int, db: Session = Depends(get_db)):
-    coupon = db.query(Coupon).filter(
-        Coupon.id == coupon_id,
-        Coupon.used == False  # Only unused coupons
-    ).first()
-
-    if not coupon:
-        return -1.0  # Return -1 if coupon not found or already used
-    
-    return coupon.discount_percentage
-
-
-
-@router.post("/user-verification-check", response_model=VerificationCheckResponse)
-def check_verification_status(
-    payload: VerificationCheckRequest,
-    db: Session = Depends(get_db)
-):
+@router.post("/post-system-review")
+def post_system_review(payload: SystemReviewCreate, db: Session = Depends(get_db)):
+    # Fetch user from DB
     user = db.query(User).filter(User.id == payload.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.verification_status == "rejected":
-        return {
-            "verification_status": user.verification_status,
-            "rejection_reason": user.rejection_reason
-        }
+    # Check if the user already has a system review
+    existing_review = db.query(SystemReview).filter(SystemReview.user_id == user.id).first()
 
-    return {
-        "verification_status": user.verification_status
-    }
+    if existing_review:
+        # Update the existing review
+        existing_review.rating = payload.rating
+        existing_review.description = payload.description
+        db.commit()
+        db.refresh(existing_review)
+
+        return {"message": "Review updated successfully"}
+    else:
+        # Create a new system review if none exists
+        review = SystemReview(
+            user_id=user.id,
+            user_name=user.full_name,
+            user_type=user.user_type,
+            rating=payload.rating,
+            description=payload.description
+        )
+        db.add(review)
+        db.commit()
+        db.refresh(review)
+
+        # Link the review to the user
+        user.system_review_id = review.id
+        db.commit()
+
+        return {"message": "Review submitted successfully"}
+
 
 @router.post("/update-name", response_model=UserOut)
 def update_user_name(
@@ -107,7 +93,6 @@ def create_verification_request(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Check if there's an existing pending/in_process verification
     existing = db.query(UserVerification).filter(
         UserVerification.user_id == payload.user_id,
         UserVerification.status.in_(["pending", "in_process"])
@@ -115,7 +100,6 @@ def create_verification_request(
     if existing:
         raise HTTPException(status_code=400, detail="Verification already in process")
 
-    # Create new verification request
     verification = UserVerification(
         user_id=payload.user_id,
         license_photo_url=payload.license_photo_url,
@@ -128,6 +112,24 @@ def create_verification_request(
     db.commit()
     return {"message": "Verification request submitted"}
 
+@router.post("/user-verification-check", response_model=VerificationCheckResponse)
+def check_verification_status(
+    payload: VerificationCheckRequest,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.id == payload.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.verification_status == "rejected":
+        return {
+            "verification_status": user.verification_status,
+            "rejection_reason": user.rejection_reason
+        }
+
+    return {
+        "verification_status": user.verification_status
+    }
 
 @router.post("/user-verification-cancel")
 def cancel_verification_request(
@@ -154,3 +156,90 @@ def cancel_verification_request(
 
     db.commit()
     return {"message": "Verification request cancelled successfully"}
+
+
+@router.get("/{user_id}", response_model=UserOut)
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    return user
+
+@router.get("/refunds/{user_id}", response_model=List[RefundOut])
+def get_user_refunds(user_id: int, db: Session = Depends(get_db)):
+    refunds = db.query(Refund).filter(Refund.user_id == user_id).all()
+    return refunds
+
+@router.get("/penalties/{user_id}", response_model=List[PenaltyOut])
+def get_user_penalties(user_id: int, db: Session = Depends(get_db)):
+    penalties = db.query(Penalty).filter(Penalty.user_id == user_id).all()
+    return penalties
+
+
+
+@router.get("/coupons/{user_id}", response_model=List[CouponOut])
+def get_user_coupons(user_id: int, db: Session = Depends(get_db)):
+    coupons = db.query(Coupon).filter(Coupon.user_id == user_id).all()
+    return coupons
+
+@router.get("/payments/{user_id}", response_model=List[PaymentOut])
+def get_user_payments(user_id: int, db: Session = Depends(get_db)):
+    payments = db.query(Payment).filter(Payment.user_id == user_id).all()
+    return payments
+
+@router.get("/payouts/{user_id}")
+def get_payouts_by_user(user_id: int, db: Session = Depends(get_db)):
+    payouts = db.query(Payout).filter(Payout.owner_id == user_id).order_by(Payout.created_at.desc()).all()
+    return payouts
+
+@router.put("/claim-refund")
+def claim_refund(data: RefundClaimIn, db: Session = Depends(get_db)):
+    refund = db.query(Refund).filter(Refund.id == data.refund_id).first()
+    
+    if not refund:
+        raise HTTPException(status_code=404, detail="Refund not found")
+    
+    if refund.status == 'claimed':
+        raise HTTPException(status_code=400, detail="Refund already claimed")
+    
+    # Mark the refund as in_process
+    refund.status = 'in_process'
+    refund.upi_id = data.upi_id
+    refund.claimed_at = datetime.utcnow()  
+    
+    db.commit()
+    db.refresh(refund)  
+    
+    return {"message": "Refund in process"}
+
+@router.put("/claim-payout")
+def claim_payout(data: PayoutClaim, db: Session = Depends(get_db)):
+    payout = db.query(Payout).filter(Payout.id == data.payout_id).first()
+    if not payout:
+        raise HTTPException(status_code=404, detail="Payout not found")
+
+    if payout.status == "claimed":
+        raise HTTPException(status_code=400, detail="Payout already claimed")
+
+    payout.status = "in_process"
+    payout.upi_id = data.upi_id
+    payout.claimed_at = datetime.utcnow()
+
+    db.commit()
+    return {"message": "Payout in process"}
+
+
+@router.put("/pay-penalty")
+def update_penalty_payment(data: PenaltyPaymentUpdate, db: Session = Depends(get_db)):
+    penalty = db.query(Penalty).filter(Penalty.id == data.penalty_id).first()
+
+    if not penalty:
+        raise HTTPException(status_code=404, detail="Penalty not found")
+
+    if penalty.payment_status == "paid":
+        raise HTTPException(status_code=400, detail="Penalty is already marked as paid")
+
+    penalty.payment_status = "paid"
+    penalty.razorpay_payment_id = data.razorpay_payment_id
+    db.commit()
+    db.refresh(penalty)
+
+    return {"message": "Penalty payment updated successfully", "penalty": penalty}
